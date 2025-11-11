@@ -3,3 +3,7 @@ release/
 dist/
 *.tar.gz
 .DS_Store
+
+# local env
+.env.local
+.env.production
