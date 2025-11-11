@@ -1,0 +1,16 @@
+{
+  "name": "MEMOPYK Devis",
+  "short_name": "MEMOPYK",
+  "description": "Fondation frontend pour le système de devis MEMOPYK.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#F2EBDC",
+  "theme_color": "#011526",
+  "icons": [
+    {
+      "src": "/logo.svg",
+      "sizes": "72x72",
+      "type": "image/svg+xml"
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root{
+  --memopyk-navy:#011526;
+  --memopyk-dark-blue:#2A4759;
+  --memopyk-sky-blue:#89BAD9;
+  --memopyk-blue-gray:#8D9FA6;
+  --memopyk-cream:#F2EBDC;
+  --memopyk-orange:#D67C4A;
+}
+
+.btn-primary{ @apply inline-flex items-center justify-center rounded-xl px-4 py-2 text-white; background: var(--memopyk-navy); }
+.btn-secondary{ @apply inline-flex items-center justify-center rounded-xl px-4 py-2; background: var(--memopyk-dark-blue); color:#fff; }
+.btn-ghost{ @apply inline-flex items-center justify-center rounded-xl px-4 py-2 border; border-color: rgba(0,0,0,.12); color: var(--memopyk-navy); background:#fff; }
+.btn-outline{ @apply inline-flex items-center justify-center rounded-xl px-3 py-1.5 border text-sm; border-color: rgba(0,0,0,.12); color: var(--memopyk-navy); background:#fff; }
+.link{ color: var(--memopyk-dark-blue); text-decoration: none; } .link:hover{ text-decoration: underline; }
+
+@layer base {
+  :root {
+    color-scheme: light;
+    font-family: 'Work Sans', Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-feature-settings: 'liga' 1, 'kern' 1;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body {
+    @apply bg-memopyk-cream text-memopyk-navy min-h-screen;
+  }
+
+  a {
+    @apply text-memopyk-sky-blue underline-offset-4 transition hover:text-memopyk-orange;
+  }
+}
