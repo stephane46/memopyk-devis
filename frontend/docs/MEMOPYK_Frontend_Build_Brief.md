@@ -71,6 +71,8 @@ frontend/
 │   ├── App.tsx
 │   └── main.tsx
 ├── public/
+│   └── logo.svg
+├── index.html
 └── tailwind.config.js
 ```
 

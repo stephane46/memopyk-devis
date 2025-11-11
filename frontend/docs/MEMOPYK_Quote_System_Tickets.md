@@ -96,7 +96,7 @@
 - **Acceptance Criteria:**  
   - Online and paper paths create correct log entries.  
   - Uploading scan triggers accepted status; undo restores prior state.  
-  - Acceptance summary printable and attached to quote.  
+  - Acceptance summary printable and attached to quote.
 - **Dependencies/Risks:** Ticket 2 (API), Ticket 7 (PDF).
 
 - **Implementation Notes:**
