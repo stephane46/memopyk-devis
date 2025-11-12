@@ -1,16 +1,31 @@
-﻿{
+{
   "name": "memopyk-backend",
   "version": "0.1.0",
   "private": true,
   "type": "commonjs",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
-    "start:prod": "node server.js"
+    "dev": "cross-env NODE_ENV=development tsup src/**/*.ts --format=cjs --out-dir dist --sourcemap --watch",
+    "build": "tsup src/**/*.ts --format=cjs --out-dir dist --sourcemap --clean",
+    "start": "cross-env NODE_ENV=production node server.js",
+    "test": "vitest run"
   },
   "dependencies": {
     "cors": "^2.8.5",
+    "drizzle-orm": "^0.33.0",
     "express": "^4.21.2",
-    "morgan": "^1.10.0"
+    "morgan": "^1.10.0",
+    "pg": "^8.13.1",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.25",
+    "@types/pg": "^8.11.2",
+    "@types/supertest": "^2.0.16",
+    "cross-env": "^10.1.0",
+    "tsup": "^8.0.1",
+    "typescript": "^5.3.3",
+    "vitest": "^1.6.1",
+    "supertest": "^6.3.4"
   }
 }
