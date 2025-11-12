@@ -7,3 +7,4 @@ dist/
 # local env
 .env.local
 .env.production
+dist/
