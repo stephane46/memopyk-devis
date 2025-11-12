@@ -1,0 +1,55 @@
+﻿name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ develop ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      # Backend
+      - name: Install backend deps
+        working-directory: backend
+        run: npm ci || npm i
+
+      - name: Build backend (noop for now)
+        working-directory: backend
+        run: echo "No backend build step yet"
+
+      - name: Backend lint (placeholder)
+        working-directory: backend
+        run: npm run lint || echo "No lint yet"
+
+      - name: Backend tests (placeholder)
+        working-directory: backend
+        run: npm test || echo "No tests yet"
+
+      # Frontend
+      - name: Install frontend deps
+        working-directory: frontend
+        run: npm ci || npm i
+
+      - name: Build frontend
+        working-directory: frontend
+        env:
+          VITE_API_BASE: https://api.devis.memopyk.com
+          VITE_SUPABASE_URL: https://supabase.memopyk.org
+          # Using a safe placeholder; real anon key isn’t needed to build
+          VITE_SUPABASE_ANON_KEY: "anon_placeholder"
+        run: npm run build
+
+      - name: Frontend lint (placeholder)
+        working-directory: frontend
+        run: npm run lint || echo "No lint yet"
