@@ -3,6 +3,7 @@
 ## 🧭 Context
 MEMOPYK is a service that transforms clients’ photos and videos into personalized “films souvenirs.”  
 The **backend** for MEMOPYK’s Quote System is already complete and running.  
+As of 13 Nov 2025, Ticket 3 (transactional /v1/quotes repositories, validators, and routes) is merged into `develop`, giving us production-ready quote CRUD, versioning, and lines APIs.  
 It provides secure API endpoints for:
 - Quote creation, versioning, acceptance, and PDF generation  
 - Offline sync and JSON backups  
@@ -14,6 +15,8 @@ Your task is to create the **frontend foundation (React/Vite app)** that will la
 
 ## 🎯 Objective
 Build a clean, modern, bilingual-ready **frontend base** (React + Vite + TypeScript) for the MEMOPYK Quote System.
+
+This foundation now needs to integrate with the live `/v1/quotes` backend so the next sprint (Ticket 4+) can focus on wiring UI flows and preparing deployment to Coolify.
 
 This stage focuses on a solid foundation that future developers can extend for:
 1. The **Admin Panel**
@@ -144,3 +147,8 @@ Add these to `package.json`:
 ### When finished
 Deliver the repo or zipped `/frontend` folder.  
 Next sprint will connect Admin UI to backend endpoints and activate the live branding preview.
+
+## 🚀 Next Steps (Updated 13 Nov 2025)
+1. Draft Ticket 4 scope around Admin UI panels powered by the new `/v1/quotes` endpoints.
+2. Prepare Coolify deployment plan for the backend so the new API can be smoke-tested in staging.
+3. Identify any frontend wiring or service layer needed to consume the transactional quote/version/line APIs.
