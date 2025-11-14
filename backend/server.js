@@ -5,29 +5,83 @@ const cors = require("cors");
 const PORT = process.env.PORT || 3001;
 const app = express();
 
-// Build allow-list from env (comma-separated)
-const allowList = (process.env.CORS_ORIGIN || "")
-  .split(",")
-  .map(s => s.trim())
-  .filter(Boolean);
+const allowList = [
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+  "http://localhost:5174",
+  "https://memopyk.com",
+  "https://www.memopyk.com",
+];
 
-// CORS delegate: reflect allowed origin, disable for others — never throw
-const corsDelegate = (req, cb) => {
-  const origin = req.header("Origin");
-  const isAllowed = origin && allowList.includes(origin);
-  const options = {
-    origin: isAllowed ? origin : false,
+function describeLayerPath(layer) {
+  if (layer?.route?.path) {
+    return layer.route.path;
+  }
+
+  if (layer?.regexp?.fast_slash) {
+    return "/";
+  }
+
+  const source = layer?.regexp?.source;
+  if (!source) {
+    return "";
+  }
+
+  return source
+    .replace(/\\\//g, "/")
+    .replace(/\^/, "")
+    .replace(/\$|\(\?=\\\/\|\$\)|\(\?=\/\|\$\)/g, "")
+    .replace(/\\\?/, "")
+    .replace(/\(\?:\^\)/, "")
+    .replace(/\/+$/, "");
+}
+
+function snapshotRouter(router) {
+  const stack = Array.isArray(router?.stack) ? router.stack : [];
+
+  return stack.map((layer) => {
+    if (layer?.route) {
+      const methods = Object.keys(layer.route.methods || {}).filter(
+        (method) => Boolean(layer.route.methods?.[method])
+      );
+
+      return {
+        type: "route",
+        path: layer.route.path,
+        methods: methods.map((method) => method.toUpperCase()),
+      };
+    }
+
+    if (layer?.name === "router" && layer?.handle) {
+      return {
+        type: "router",
+        path: describeLayerPath(layer),
+        children: snapshotRouter(layer.handle),
+      };
+    }
+
+    return {
+      type: "layer",
+      name: layer?.name || "<anonymous>",
+    };
+  });
+}
+
+app.use(
+  cors({
+    origin(origin, cb) {
+      if (!origin) return cb(null, true);
+      if (allowList.includes(origin)) return cb(null, true);
+      return cb(new Error("Not allowed by CORS"));
+    },
+    methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
     credentials: true,
-    methods: ["GET","HEAD","PUT","PATCH","POST","DELETE","OPTIONS"],
-    allowedHeaders: ["Content-Type","Authorization"],
-    optionsSuccessStatus: 204
-  };
-  cb(null, options);
-};
+    maxAge: 86400,
+  })
+);
 
-// Global CORS + explicit preflight handler
-app.use(cors(corsDelegate));
-app.options("*", cors(corsDelegate), (_req, res) => res.sendStatus(204));
+app.options("*", cors());
 
 app.use(express.json());
 app.use(morgan("tiny"));
@@ -49,10 +103,13 @@ try {
 }
 
 if (apiRouter) {
+  const snapshot = snapshotRouter(apiRouter);
+  console.log("[bootstrap] /v1 router snapshot", JSON.stringify(snapshot));
   app.use("/v1", apiRouter);
+} else {
+  console.warn("[bootstrap] /v1 router not mounted");
 }
 
-// Health & root
 app.get("/healthz", (_req, res) => res.json({ ok: true }));
 app.get("/", (_req, res) => res.json({ name: "MEMOPYK API", status: "ok" }));
 
