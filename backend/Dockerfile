@@ -1,14 +1,21 @@
-﻿FROM node:20-alpine
+# Simple one-stage build for the MEMOPYK Devis backend
+FROM node:20-alpine
+
+# Work in /app inside the container
 WORKDIR /app
 
-ENV NODE_ENV=production
-
-# install only runtime deps
+# Install backend dependencies
 COPY package*.json ./
-RUN npm ci --omit=dev || npm install --omit=dev
+RUN npm ci
 
-# copy the rest of the backend (context is /backend)
+# Copy the rest of the backend source (server.js, src/, tsconfig, etc.)
 COPY . .
 
+# Build TypeScript to ./dist (tsup)
+RUN npm run build
+
+# Expose the API port
 EXPOSE 3001
-CMD ["node","server.js"]
+
+# Start the Express server (which will require('./dist/routes'))
+CMD ["node", "server.js"]
