@@ -64,7 +64,6 @@ const maxPoolSize = Number.parseInt(process.env.DB_POOL_MAX ?? '10', 10);
 export const pool = new Pool({
   connectionString,
   max: Number.isNaN(maxPoolSize) ? 10 : maxPoolSize,
-  ssl: shouldUseSsl ? { rejectUnauthorized: false } : undefined,
 });
 
 pool.on('error', (err: Error) => {
