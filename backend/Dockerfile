@@ -4,6 +4,9 @@ FROM node:20-alpine
 # Work in /app inside the container
 WORKDIR /app
 
+# Install OS dependencies, including ca-certificates for TLS
+RUN apk add --no-cache ca-certificates
+
 # Install backend dependencies
 COPY package*.json ./
 RUN npm ci
