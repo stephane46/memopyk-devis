@@ -45,23 +45,30 @@
 
 ---
 
-### Ticket 3 – Live Mode Mechanics
+### Ticket 3 – Quotes Domain Model & Repository ✅ (Completed 13 Nov 2025)
 - **Summary:**  
-  Provide an in-person editing mode for rapid quoting sessions with autosave and instant recalculation.
+  Implement Drizzle schema, migrations, repositories, validators, and `/v1/quotes` API routes supporting transactional quote/versions/lines CRUD with totals recalculation and structured errors.
 - **Scope:**  
-  - Autosave draft every 2–3 s to local cache and Supabase.  
-  - Update totals, VAT, deposit instantly on edit.  
-  - Add “Enregistré” badge; ensure no full reload on freeze.  
-  - Enlarge tap targets ≥ 44 px for iPhone.  
+  - Define `quotes`, `quote_versions`, `quote_lines`, `quote_number_counters`, activities, and attachments schema + migrations.  
+  - Implement repository helpers for numbering, totals recomputation, version duplication/publish, and line CRUD.  
+  - Expose `/v1/quotes` router with nested versions/lines endpoints using Zod validators and consistent JSON error shape.  
+  - Add Vitest + Supertest integration coverage for create/list/update/delete flows, version duplication, publish, and line operations.
 - **Acceptance Criteria:**  
-  - Edits persist even if browser/tab closed.  
-  - Totals update live; badge toggles correctly.  
-  - Works offline (queued in outbox).  
-- **Dependencies/Risks:** offline sync (Ticket 8).
+  - Quote numbers generated as `MPK-{YYYY}-{seq}` with transactional reservation.  
+  - Version and line mutations recompute totals, enforce ownership, and honor soft delete/restore.  
+  - API returns `{ error: { code, message, details? } }` for failures and passes integration suite.  
+  - `npm run test` and `npm run build` succeed on CI prior to merge.
 
 - **Implementation Notes:**
-  - Added a `PATCH /api/quotes/:quoteId/versions/:v` endpoint to allow partial updates of a version's metadata (title, label, intro, etc.).
-  - This endpoint, combined with the existing `PATCH` endpoints for lines and blocks, provides the necessary backend support for the frontend to implement autosaving.
+  - Added comprehensive Drizzle schema and migration `backend/drizzle/0002_quotes_domain.sql`; wired `backend/src/db/client.ts` + `schema.ts` for repository access.  
+  - Implemented services + repositories (`quotes.repo.ts`, `versions.repo.ts`, `lines.repo.ts`, `numbering.service.ts`, `totals.service.ts`) with transactional guards and totals recomputation.  
+  - Built `/v1/quotes` router plus validators (`quotes.ts`, `versions.ts`, `lines.ts`) surfaced via `src/routes/index.ts`; updated `server.js` bootstrap.  
+  - Authored integration tests `tests/routes/quotes.routes.test.ts` and supporting config (`vitest.config.ts`, `tsconfig.json`) confirming CRUD + version + line scenarios.  
+  - PR “Implement /v1/quotes API (Repositories, Validators, Integration Tests)” merged into `develop`; ready for Coolify deployment planning.
+
+- **Next Up:**  
+  - Draft Ticket 4 (frontend wiring + admin UI enhancements) leveraging the live `/v1/quotes` endpoints.  
+  - Plan Coolify deployment smoke tests for the new API prior to exposing to the frontend.
 
 ---
 
