@@ -4,14 +4,16 @@ import { Pool } from 'pg';
 
 import * as schema from './schema';
 
-const rawConnectionString =
+const sourcedConnectionString =
   process.env.DATABASE_URL ?? process.env.SUPABASE_DB_URL ?? process.env.SUPABASE_URL;
 
-if (!rawConnectionString) {
+if (!sourcedConnectionString) {
   throw new Error(
     'Database connection string missing. Set DATABASE_URL or SUPABASE_DB_URL in the environment.',
   );
 }
+
+const rawConnectionString = sourcedConnectionString.trim();
 
 const normalizeFlag = (value: string | undefined): string | undefined =>
   value?.trim().toLowerCase();
