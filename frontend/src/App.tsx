@@ -11,6 +11,9 @@ import { ContentBlocksPage } from './pages/admin/ContentBlocksPage'
 import { TaxRatesPage } from './pages/admin/TaxRatesPage'
 import { CurrenciesFxPage } from './pages/admin/CurrenciesFxPage'
 import { BrandingPage } from './pages/admin/BrandingPage'
+import QuotesListPage from './pages/admin/quotes/List'
+import CreateQuotePage from './pages/admin/quotes/Create'
+import QuoteDetailPage from './pages/admin/quotes/Detail'
 import { QuoteEditorPage } from './pages/quotes/QuoteEditorPage'
 import { PublicQuoteViewPage } from './pages/public/PublicQuoteViewPage'
 import { NotFoundPage } from './pages/NotFoundPage'
@@ -31,6 +34,18 @@ const router = createBrowserRouter([
           {
             index: true,
             element: <AdminDashboardPage />,
+          },
+          {
+            path: 'quotes',
+            element: <QuotesListPage />,
+          },
+          {
+            path: 'quotes/new',
+            element: <CreateQuotePage />,
+          },
+          {
+            path: 'quotes/:quoteId',
+            element: <QuoteDetailPage />,
           },
           {
             path: 'products',
