@@ -33,6 +33,15 @@ export function QuotePdfPanel({ quoteId, versionId }: QuotePdfPanelProps) {
 
   const bannerMessage = localError || mutationErrorMessage || remoteErrorMessage
 
+  const lastGeneratedAt =
+    status === 'ready'
+      ? job?.generatedAt
+        ? new Date(job.generatedAt)
+        : jobQuery.dataUpdatedAt
+          ? new Date(jobQuery.dataUpdatedAt)
+          : null
+      : null
+
   const handleGenerateClick = () => {
     if (!versionId || isGenerating) return
 
@@ -64,13 +73,18 @@ export function QuotePdfPanel({ quoteId, versionId }: QuotePdfPanelProps) {
 
     switch (status) {
       case 'pending':
-        return "Génération du PDF en cours…"
+        return 'PDF en cours de génération…'
       case 'ready':
-        return "PDF prêt pour ce devis."
+        if (lastGeneratedAt) {
+          const date = formatDateFr(lastGeneratedAt)
+          const time = formatTimeFr(lastGeneratedAt)
+          return `PDF prêt – généré le ${date} à ${time}`
+        }
+        return 'PDF prêt pour ce devis.'
       case 'failed':
         return "Échec de la génération du PDF. Vous pouvez réessayer."
       default:
-        return "Aucun PDF généré pour ce devis."
+        return 'Aucun PDF généré pour le moment.'
     }
   }
 
@@ -124,4 +138,12 @@ export function QuotePdfPanel({ quoteId, versionId }: QuotePdfPanelProps) {
       </div>
     </section>
   )
+}
+
+function formatDateFr(date: Date) {
+  return date.toLocaleDateString('fr-FR')
+}
+
+function formatTimeFr(date: Date) {
+  return date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
 }

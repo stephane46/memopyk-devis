@@ -89,11 +89,18 @@ export function QuoteVersionsBar({ quoteId, currentVersionId }: QuoteVersionsBar
           const isLocked = version.is_locked
 
           const baseClasses =
-            'inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs transition focus:outline-none focus:ring-2 focus:ring-memopyk-orange/70 focus:ring-offset-1'
+            'inline-flex items-stretch gap-3 rounded-full border px-3 py-1.5 text-[11px] sm:text-xs transition focus:outline-none focus:ring-2 focus:ring-memopyk-orange/70 focus:ring-offset-1'
           const activeClasses =
             'border-memopyk-orange bg-memopyk-orange text-white shadow-sm cursor-default'
           const inactiveClasses =
             'border-memopyk-dark-blue/15 bg-memopyk-cream/60 text-memopyk-dark-blue hover:bg-memopyk-cream/90'
+
+          const statusLabel =
+            version.status === 'current'
+              ? 'Actif'
+              : version.status === 'archived'
+              ? 'Archivé'
+              : 'Brouillon'
 
           return (
             <button
@@ -105,27 +112,37 @@ export function QuoteVersionsBar({ quoteId, currentVersionId }: QuoteVersionsBar
                 busy || isActive ? 'opacity-80' : ''
               }`}
             >
-              <span className="font-semibold">V{version.version_number}</span>
-              {version.label && (
-                <span className="max-w-[120px] truncate text-[11px] text-memopyk-blue-gray/90">
-                  {version.label}
-                </span>
-              )}
-              {version.created_at && (
-                <span className="hidden text-[10px] text-memopyk-blue-gray sm:inline">
-                  {formatISO(version.created_at)}
-                </span>
-              )}
-              {isActive && (
-                <span className="rounded-full bg-white/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide">
-                  Actif
-                </span>
-              )}
-              {isLocked && !isActive && (
-                <span className="rounded-full bg-memopyk-dark-blue/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-memopyk-dark-blue">
-                  Verrouillé
-                </span>
-              )}
+              <div className="flex flex-col items-start text-left">
+                <span className="font-semibold">V{version.version_number}</span>
+                {version.label && (
+                  <span className="max-w-[140px] truncate text-[10px] text-memopyk-blue-gray/90">
+                    {version.label}
+                  </span>
+                )}
+              </div>
+              <div className="flex flex-col items-end gap-1 text-right">
+                {version.created_at && (
+                  <span className="hidden text-[10px] text-memopyk-blue-gray sm:inline">
+                    Créé le {formatISO(version.created_at)}
+                  </span>
+                )}
+                <div className="flex items-center gap-1">
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-[10px] uppercase tracking-wide ${
+                      isActive
+                        ? 'bg-white/20 text-white'
+                        : 'bg-white/60 text-memopyk-dark-blue'
+                    }`}
+                  >
+                    {statusLabel}
+                  </span>
+                  {isLocked && !isActive && (
+                    <span className="rounded-full bg-memopyk-dark-blue/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-memopyk-dark-blue">
+                      Verrouillé
+                    </span>
+                  )}
+                </div>
+              </div>
             </button>
           )
         })}

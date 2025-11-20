@@ -2,10 +2,14 @@ import { useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { useCreateQuote } from '../../../lib/hooks/useQuotes'
+import { useAdminBranding } from '../../../lib/hooks/useAdminCatalog'
 
 export default function CreateQuotePage() {
   const navigate = useNavigate()
   const createMutation = useCreateQuote()
+  const brandingQuery = useAdminBranding()
+
+  const brandingConfig = brandingQuery.data?.data ?? null
 
   const [title, setTitle] = useState('')
   const [customerName, setCustomerName] = useState('')
@@ -50,10 +54,21 @@ export default function CreateQuotePage() {
   return (
     <div className="mx-auto max-w-3xl px-4 py-10">
       <h1 className="mb-2 text-2xl font-semibold text-memopyk-navy">Nouveau devis</h1>
-      <p className="mb-6 text-memopyk-blue-gray">
+      <p className="mb-4 text-memopyk-blue-gray">
         Crée un premier devis MEMOPYK en renseignant les informations principales du client. Tu pourras ensuite
         ajouter des lignes et des versions détaillées.
       </p>
+
+      {brandingConfig && (
+        <div className="mb-6 rounded-xl bg-memopyk-cream/70 px-3 py-2 text-xs text-memopyk-blue-gray">
+          {brandingConfig.default_validity_days != null && (
+            <p>Validité par défaut : {brandingConfig.default_validity_days} jours</p>
+          )}
+          {brandingConfig.default_deposit_pct != null && (
+            <p>Acompte par défaut : {brandingConfig.default_deposit_pct} %</p>
+          )}
+        </div>
+      )}
 
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>

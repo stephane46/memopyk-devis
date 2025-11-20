@@ -34,6 +34,29 @@ vi.mock('../../src/repositories/lines.repo', () => ({
   updateLineTx: vi.fn(),
 }));
 
+vi.mock('../../src/repositories/acceptance.repo', () => ({
+  acceptQuoteOnPaper: vi.fn(),
+  undoAcceptance: vi.fn(),
+}));
+
+vi.mock('../../src/repositories/public-links.repo', () => ({
+  upsertPublicLinkTx: vi.fn(),
+  deletePublicLinkByQuoteIdTx: vi.fn(),
+}));
+
+vi.mock('../../src/services/pin-hash.service', () => ({
+  hashPin: vi.fn(),
+}));
+
+vi.mock('../../src/repositories/activities.repo', () => ({
+  logActivity: vi.fn(),
+  logActivityTx: vi.fn(),
+}));
+
+vi.mock('../../src/services/version-diff.service', () => ({
+  computeVersionDiffTx: vi.fn(),
+}));
+
 vi.mock('../../src/db/client', () => {
   const state = {
     quote: { id: QUOTE_ID, deletedAt: null },
@@ -69,6 +92,36 @@ vi.mock('../../src/db/client', () => {
     }),
   });
 
+  it('returns an acceptance summary for a quote', async () => {
+    const fullQuote = {
+      quote: {
+        id: QUOTE_ID,
+        number: 'MPK-2025-001',
+        status: 'accepted',
+        acceptanceMode: 'online',
+        acceptedAt: isoNow,
+        acceptedByName: 'John Doe',
+      },
+      currentVersion: null,
+      lines: [],
+    } as unknown as QuoteFull;
+
+    quotesRepo.getById.mockResolvedValue(fullQuote);
+
+    const response = await request(app).get(`/v1/quotes/${QUOTE_ID}/acceptance-summary`);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({
+      data: {
+        status: 'accepted',
+        acceptance_mode: 'online',
+        accepted_at: isoNow,
+        accepted_by_name: 'John Doe',
+      },
+    });
+    expect(quotesRepo.getById).toHaveBeenCalledWith(QUOTE_ID);
+  });
+
   const mockDb = {
     query: {
       quotes: {
@@ -100,6 +153,11 @@ let app: ReturnType<typeof express>;
 let quotesRepo: Awaited<ReturnType<typeof importQuotesRepo>>;
 let versionsRepo: Awaited<ReturnType<typeof importVersionsRepo>>;
 let linesRepo: Awaited<ReturnType<typeof importLinesRepo>>;
+let activitiesRepo: Awaited<ReturnType<typeof importActivitiesRepo>>;
+let diffService: Awaited<ReturnType<typeof importDiffService>>;
+let acceptanceRepo: Awaited<ReturnType<typeof importAcceptanceRepo>>;
+let publicLinksRepo: Awaited<ReturnType<typeof importPublicLinksRepo>>;
+let pinHashService: Awaited<ReturnType<typeof importPinHashService>>;
 let mockState: {
   quote: { id: string; deletedAt: Date | null } | null;
   version: { id: string; quoteId: string; deletedAt: Date | null } | null;
@@ -118,11 +176,36 @@ async function importLinesRepo() {
   return vi.mocked(await import('../../src/repositories/lines.repo'));
 }
 
+async function importActivitiesRepo() {
+  return vi.mocked(await import('../../src/repositories/activities.repo'));
+}
+
+async function importDiffService() {
+  return vi.mocked(await import('../../src/services/version-diff.service'));
+}
+
+async function importAcceptanceRepo() {
+  return vi.mocked(await import('../../src/repositories/acceptance.repo'));
+}
+
+async function importPublicLinksRepo() {
+  return vi.mocked(await import('../../src/repositories/public-links.repo'));
+}
+
+async function importPinHashService() {
+  return vi.mocked(await import('../../src/services/pin-hash.service'));
+}
+
 beforeAll(async () => {
   const { default: quotesRouter } = await import('../../src/routes/v1/quotes');
   quotesRepo = await importQuotesRepo();
   versionsRepo = await importVersionsRepo();
   linesRepo = await importLinesRepo();
+  activitiesRepo = await importActivitiesRepo();
+  diffService = await importDiffService();
+  acceptanceRepo = await importAcceptanceRepo();
+  publicLinksRepo = await importPublicLinksRepo();
+  pinHashService = await importPinHashService();
 
   const dbModule: any = await import('../../src/db/client');
   mockState = dbModule.__mockState;
@@ -130,6 +213,22 @@ beforeAll(async () => {
   app = express();
   app.use(express.json());
   app.use('/v1/quotes', quotesRouter);
+
+  app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    const status = typeof err?.status === 'number' ? err.status : 500;
+    const code = typeof err?.code === 'string' ? err.code : 'internal_server_error';
+    const message =
+      status >= 500
+        ? 'An unexpected error occurred. Please try again later.'
+        : err?.message || 'Request failed.';
+
+    const payload: any = { code, message };
+    if (err?.details) {
+      payload.details = err.details;
+    }
+
+    res.status(status).json({ error: payload });
+  });
 });
 
 const sampleQuotePayload = {
@@ -200,7 +299,7 @@ describe('v1/quotes routes', () => {
   it('fetches a quote by id', async () => {
     const fullQuote = {
       quote: { id: QUOTE_ID, number: 'MPK-2025-001' },
-      currentVersion: null,
+      currentVersion: { id: VERSION_ID } as unknown as QuoteVersion,
       lines: [],
     } as unknown as QuoteFull;
     quotesRepo.getById.mockResolvedValue(fullQuote);
@@ -210,6 +309,12 @@ describe('v1/quotes routes', () => {
     expect(response.status).toBe(200);
     expect(response.body).toEqual({ data: fullQuote });
     expect(quotesRepo.getById).toHaveBeenCalledWith(QUOTE_ID);
+    expect(activitiesRepo.logActivity).toHaveBeenCalledWith({
+      quoteId: QUOTE_ID,
+      versionId: VERSION_ID,
+      type: 'view',
+      metadata: { source: 'v1/quotes/:quoteId' },
+    });
   });
 
   it('updates quote metadata', async () => {
@@ -237,6 +342,46 @@ describe('v1/quotes routes', () => {
     const restoreResponse = await request(app).post(`/v1/quotes/${QUOTE_ID}/restore`);
     expect(restoreResponse.status).toBe(204);
     expect(quotesRepo.restore).toHaveBeenCalledWith(QUOTE_ID);
+  });
+
+  it('accepts a quote on paper', async () => {
+    const fullQuote = {
+      quote: { id: QUOTE_ID, number: 'MPK-2025-001' },
+      currentVersion: null,
+      lines: [],
+    } as unknown as QuoteFull;
+
+    acceptanceRepo.acceptQuoteOnPaper.mockResolvedValue(fullQuote);
+
+    const payload = {
+      full_name: 'John Doe',
+      accepted_at: isoNow,
+      notes: 'Signed on paper',
+    };
+
+    const response = await request(app)
+      .post(`/v1/quotes/${QUOTE_ID}/accept-paper`)
+      .send(payload);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ data: fullQuote });
+    expect(acceptanceRepo.acceptQuoteOnPaper).toHaveBeenCalledWith(QUOTE_ID, payload);
+  });
+
+  it('undoes acceptance for a quote', async () => {
+    const fullQuote = {
+      quote: { id: QUOTE_ID, number: 'MPK-2025-001' },
+      currentVersion: null,
+      lines: [],
+    } as unknown as QuoteFull;
+
+    acceptanceRepo.undoAcceptance.mockResolvedValue(fullQuote);
+
+    const response = await request(app).post(`/v1/quotes/${QUOTE_ID}/acceptance/undo`);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ data: fullQuote });
+    expect(acceptanceRepo.undoAcceptance).toHaveBeenCalledWith(QUOTE_ID);
   });
 
   it('lists versions for a quote', async () => {
@@ -271,6 +416,27 @@ describe('v1/quotes routes', () => {
     expect(response.status).toBe(200);
     expect(response.body).toEqual({ data: versions });
     expect(versionsRepo.listVersionsTx).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns a version diff between two versions', async () => {
+    const diff = {
+      meta: [{ field: 'label', before: null, after: 'New label' }],
+      lines: [],
+    };
+
+    diffService.computeVersionDiffTx.mockResolvedValue(diff as any);
+
+    const response = await request(app).get(
+      `/v1/quotes/${QUOTE_ID}/versions/${VERSION_ID}/diff/${VERSION_ID_2}`,
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ data: diff });
+    expect(diffService.computeVersionDiffTx).toHaveBeenCalledWith(
+      expect.anything(),
+      VERSION_ID,
+      VERSION_ID_2,
+    );
   });
 
   it('duplicates a version when from_version_id is provided', async () => {
@@ -349,6 +515,12 @@ describe('v1/quotes routes', () => {
 
     expect(response.status).toBe(204);
     expect(versionsRepo.setCurrentVersionTx).toHaveBeenCalledWith(expect.anything(), VERSION_ID);
+    expect(activitiesRepo.logActivityTx).toHaveBeenCalledWith(expect.anything(), {
+      quoteId: QUOTE_ID,
+      versionId: VERSION_ID,
+      type: 'version_published',
+      metadata: { source: 'v1/quotes:publish' },
+    });
   });
 
   it('creates, updates, and deletes lines', async () => {
@@ -414,5 +586,178 @@ describe('v1/quotes routes', () => {
 
     expect(deleteResponse.status).toBe(204);
     expect(linesRepo.softDeleteLineTx).toHaveBeenCalledWith(expect.anything(), LINE_ID);
+    expect(activitiesRepo.logActivityTx).toHaveBeenCalledWith(expect.anything(), {
+      quoteId: QUOTE_ID,
+      versionId: VERSION_ID,
+      type: 'line_changed',
+      metadata: { operation: 'create', lineId: LINE_ID },
+    });
+    expect(activitiesRepo.logActivityTx).toHaveBeenCalledWith(expect.anything(), {
+      quoteId: QUOTE_ID,
+      versionId: VERSION_ID,
+      type: 'line_changed',
+      metadata: { operation: 'update', lineId: LINE_ID },
+    });
+    expect(activitiesRepo.logActivityTx).toHaveBeenCalledWith(expect.anything(), {
+      quoteId: QUOTE_ID,
+      versionId: VERSION_ID,
+      type: 'line_changed',
+      metadata: { operation: 'delete', lineId: LINE_ID },
+    });
+  });
+
+  describe('POST /v1/quotes/:quoteId/public-link', () => {
+    it('enables public link without PIN', async () => {
+      const link = {
+        id: 'link-1',
+        quoteId: QUOTE_ID,
+        token: 'token-123',
+        pinHash: null,
+        pinFailedAttempts: 0,
+        pinLockedUntil: null,
+        createdAt: isoNow,
+        updatedAt: isoNow,
+      } as any;
+
+      publicLinksRepo.upsertPublicLinkTx.mockResolvedValue(link);
+
+      const response = await request(app)
+        .post(`/v1/quotes/${QUOTE_ID}/public-link`)
+        .send({ enabled: true });
+
+      expect(response.status).toBe(200);
+      expect(response.body.data).toMatchObject({
+        enabled: true,
+        pin_protected: false,
+      });
+      expect(typeof response.body.data.token).toBe('string');
+      expect(response.body.data.token.length).toBeGreaterThan(0);
+
+      expect(publicLinksRepo.upsertPublicLinkTx).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          quoteId: QUOTE_ID,
+          pinHash: null,
+        }),
+      );
+
+      const [, upsertInput] = publicLinksRepo.upsertPublicLinkTx.mock.calls[0];
+      expect(typeof upsertInput.token).toBe('string');
+      expect(upsertInput.token.length).toBeGreaterThanOrEqual(32);
+
+      expect(activitiesRepo.logActivityTx).toHaveBeenCalledWith(expect.anything(), {
+        quoteId: QUOTE_ID,
+        versionId: null,
+        type: 'public_link_updated',
+        metadata: {
+          enabled: true,
+          pin_protected: false,
+          rotated: true,
+        },
+      });
+    });
+
+    it('enables public link with PIN', async () => {
+      pinHashService.hashPin.mockReturnValue('hashed-123456');
+
+      const link = {
+        id: 'link-1',
+        quoteId: QUOTE_ID,
+        token: 'token-123',
+        pinHash: 'hashed-123456',
+        pinFailedAttempts: 0,
+        pinLockedUntil: null,
+        createdAt: isoNow,
+        updatedAt: isoNow,
+      } as any;
+
+      publicLinksRepo.upsertPublicLinkTx.mockResolvedValue(link);
+
+      const response = await request(app)
+        .post(`/v1/quotes/${QUOTE_ID}/public-link`)
+        .send({ enabled: true, pin: '123456' });
+
+      expect(response.status).toBe(200);
+      expect(response.body.data).toMatchObject({
+        enabled: true,
+        pin_protected: true,
+      });
+      expect(typeof response.body.data.token).toBe('string');
+      expect(response.body.data.token.length).toBeGreaterThan(0);
+
+      expect(pinHashService.hashPin).toHaveBeenCalledWith('123456');
+
+      expect(publicLinksRepo.upsertPublicLinkTx).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          quoteId: QUOTE_ID,
+          pinHash: 'hashed-123456',
+        }),
+      );
+
+      expect(activitiesRepo.logActivityTx).toHaveBeenCalledWith(expect.anything(), {
+        quoteId: QUOTE_ID,
+        versionId: null,
+        type: 'public_link_updated',
+        metadata: {
+          enabled: true,
+          pin_protected: true,
+          rotated: true,
+        },
+      });
+    });
+
+    it('disables public link', async () => {
+      const response = await request(app)
+        .post(`/v1/quotes/${QUOTE_ID}/public-link`)
+        .send({ enabled: false });
+
+      expect(response.status).toBe(200);
+      expect(response.body.data).toEqual({
+        enabled: false,
+        token: null,
+        pin_protected: false,
+      });
+
+      expect(publicLinksRepo.deletePublicLinkByQuoteIdTx).toHaveBeenCalledWith(
+        expect.anything(),
+        QUOTE_ID,
+      );
+
+      expect(activitiesRepo.logActivityTx).toHaveBeenCalledWith(expect.anything(), {
+        quoteId: QUOTE_ID,
+        versionId: null,
+        type: 'public_link_updated',
+        metadata: { enabled: false },
+      });
+    });
+
+    it('returns quote_not_found when quote does not exist', async () => {
+      mockState.quote = null;
+
+      const response = await request(app)
+        .post(`/v1/quotes/${QUOTE_ID}/public-link`)
+        .send({ enabled: true });
+
+      expect(response.status).toBe(404);
+      expect(response.body).toHaveProperty('error');
+      expect(response.body.error.code).toBe('quote_not_found');
+
+      expect(publicLinksRepo.upsertPublicLinkTx).not.toHaveBeenCalled();
+      expect(publicLinksRepo.deletePublicLinkByQuoteIdTx).not.toHaveBeenCalled();
+    });
+
+    it('returns validation_error for invalid payload', async () => {
+      const response = await request(app)
+        .post(`/v1/quotes/${QUOTE_ID}/public-link`)
+        .send({ enabled: true, pin: 'abcd' });
+
+      expect(response.status).toBe(422);
+      expect(response.body).toHaveProperty('error');
+      expect(response.body.error.code).toBe('validation_error');
+
+      expect(publicLinksRepo.upsertPublicLinkTx).not.toHaveBeenCalled();
+      expect(publicLinksRepo.deletePublicLinkByQuoteIdTx).not.toHaveBeenCalled();
+    });
   });
 });

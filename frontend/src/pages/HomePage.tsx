@@ -1,6 +1,9 @@
 import { Link } from 'react-router-dom'
+import { usePageTitle } from '../lib/usePageTitle'
 
 export function HomePage() {
+  usePageTitle('MEMOPYK Devis — Accueil')
+
   return (
     <div className="min-h-screen bg-[var(--memopyk-cream)] text-[var(--memopyk-navy)]">
       <header className="border-b border-black/10 bg-white/70 backdrop-blur-sm">

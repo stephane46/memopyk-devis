@@ -70,4 +70,32 @@ describe('Admin Quote Detail page', () => {
     expect(screen.getByText(/Impossible d'afficher ce devis/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Réessayer/i })).toBeInTheDocument()
   })
+
+  it('sets the page title with the quote number when the quote is loaded', () => {
+    mockedUseQuote.mockReturnValue({
+      data: {
+        data: {
+          id: 'quote-4',
+          number: 'DEV-2025-001',
+          status: 'draft',
+          customer_name: 'Client',
+          created_at: '2025-01-01T00:00:00.000Z',
+          validity_date: null,
+          currency_code: 'EUR',
+          acceptanceMode: null,
+          acceptedAt: null,
+          acceptedByName: null,
+          current_version: null,
+        },
+      },
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    })
+
+    renderWithRouter('quote-4')
+
+    expect(document.title).toBe('MEMOPYK Devis — Admin — DEV-2025-001')
+  })
 })

@@ -1,13 +1,16 @@
+import { randomBytes } from 'crypto';
 import type { NextFunction, Request, Response } from 'express';
 import { Router } from 'express';
 import { and, eq, isNull } from 'drizzle-orm';
 
 import { parseLineCreate, parseLineUpdate } from '../../api/validators/lines';
+import { parseAdminPublicLinkUpdate } from '../../api/validators/public-links';
 import {
   parseQuoteCreate,
   parseQuoteListQuery,
   parseQuoteUpdate,
 } from '../../api/validators/quotes';
+import { parseAdminPaperAcceptance } from '../../api/validators/acceptance';
 import { parseVersionCreate } from '../../api/validators/versions';
 import { db, type TransactionClient } from '../../db/client';
 import { quoteLines, quoteVersions, quotes } from '../../db/schema';
@@ -24,6 +27,7 @@ import {
   softDelete as softDeleteQuote,
   updateMeta as updateQuoteMeta,
 } from '../../repositories/quotes.repo';
+import { acceptQuoteOnPaper, undoAcceptance } from '../../repositories/acceptance.repo';
 import {
   createVersionWithLinesTx,
   duplicateVersionTx,
@@ -31,8 +35,28 @@ import {
   setCurrentVersionTx,
 } from '../../repositories/versions.repo';
 import { HttpError } from '../../utils/http-error';
+import { logActivity, logActivityTx } from '../../repositories/activities.repo';
+import { upsertPublicLinkTx, deletePublicLinkByQuoteIdTx } from '../../repositories/public-links.repo';
+import { hashPin } from '../../services/pin-hash.service';
+import { computeVersionDiffTx } from '../../services/version-diff.service';
 
 const router = Router();
+
+router.get(
+  '/:quoteId/versions/:fromVersionId/diff/:toVersionId',
+  asyncHandler(async (req, res) => {
+    const { quoteId, fromVersionId, toVersionId } = req.params;
+
+    const diff = await db.transaction(async (tx) => {
+      await assertVersionOwnership(tx, quoteId, fromVersionId);
+      await assertVersionOwnership(tx, quoteId, toVersionId);
+
+      return computeVersionDiffTx(tx, fromVersionId, toVersionId);
+    });
+
+    res.json({ data: diff });
+  }),
+);
 
 type AsyncRouteHandler = (req: Request, res: Response, next: NextFunction) => Promise<void>;
 
@@ -145,7 +169,119 @@ router.get(
       throw new HttpError(404, 'quote_not_found', 'Quote not found.');
     }
 
+    await logActivity({
+      quoteId,
+      versionId: aggregate.currentVersion?.id ?? null,
+      type: 'view',
+      metadata: { source: 'v1/quotes/:quoteId' },
+    });
+
     res.json({ data: aggregate });
+  }),
+);
+
+router.post(
+  '/:quoteId/accept-paper',
+  asyncHandler(async (req, res) => {
+    const { quoteId } = req.params;
+    const payload = parseAdminPaperAcceptance(req.body);
+
+    const aggregate = await acceptQuoteOnPaper(quoteId, payload);
+
+    res.json({ data: aggregate });
+  }),
+);
+
+router.post(
+  '/:quoteId/acceptance/undo',
+  asyncHandler(async (req, res) => {
+    const { quoteId } = req.params;
+
+    const aggregate = await undoAcceptance(quoteId);
+
+    res.json({ data: aggregate });
+  }),
+);
+
+router.get(
+  '/:quoteId/acceptance-summary',
+  asyncHandler(async (req, res) => {
+    const { quoteId } = req.params;
+    const aggregate = await getQuoteById(quoteId);
+
+    if (!aggregate) {
+      throw new HttpError(404, 'quote_not_found', 'Quote not found.');
+    }
+
+    const { quote } = aggregate;
+
+    res.json({
+      data: {
+        status: quote.status,
+        acceptance_mode: quote.acceptanceMode ?? null,
+        accepted_at: quote.acceptedAt ?? null,
+        accepted_by_name: quote.acceptedByName ?? null,
+      },
+    });
+  }),
+);
+
+router.post(
+  '/:quoteId/public-link',
+  asyncHandler(async (req, res) => {
+    const { quoteId } = req.params;
+    const payload = parseAdminPublicLinkUpdate(req.body);
+
+    const result = await db.transaction(async (tx) => {
+      await assertQuoteExistsTx(tx, quoteId);
+
+      if (!payload.enabled) {
+        await deletePublicLinkByQuoteIdTx(tx, quoteId);
+
+        await logActivityTx(tx, {
+          quoteId,
+          versionId: null,
+          type: 'public_link_updated',
+          metadata: {
+            enabled: false,
+          },
+        });
+
+        return {
+          enabled: false,
+          token: null,
+          pin_protected: false,
+        } as const;
+      }
+
+      const token = randomBytes(32).toString('hex');
+      const pinHash = typeof payload.pin === 'string' ? hashPin(payload.pin) : null;
+
+      const link = await upsertPublicLinkTx(tx, {
+        quoteId,
+        token,
+        pinHash,
+      });
+
+      await logActivityTx(tx, {
+        quoteId,
+        versionId: null,
+        type: 'public_link_updated',
+        metadata: {
+          enabled: true,
+          pin_protected: !!pinHash,
+          rotated: true,
+        },
+      });
+
+      return {
+        enabled: true,
+        token: link.token,
+        pin_protected: !!link.pinHash,
+      } as const;
+    });
+
+    res.json({ data: result });
   }),
 );
 
@@ -229,6 +365,13 @@ router.post(
     await db.transaction(async (tx) => {
       await assertVersionOwnership(tx, quoteId, versionId);
       await setCurrentVersionTx(tx, versionId);
+
+      await logActivityTx(tx, {
+        quoteId,
+        versionId,
+        type: 'version_published',
+        metadata: { source: 'v1/quotes:publish' },
+      });
     });
 
     res.status(204).send();
@@ -243,7 +386,16 @@ router.post(
 
     const line = await db.transaction(async (tx) => {
       await assertVersionOwnership(tx, quoteId, versionId);
-      return createLineTx(tx, versionId, payload);
+      const created = await createLineTx(tx, versionId, payload);
+
+      await logActivityTx(tx, {
+        quoteId,
+        versionId,
+        type: 'line_changed',
+        metadata: { operation: 'create', lineId: created.id },
+      });
+
+      return created;
     });
 
     res.status(201).json({ data: line });
@@ -258,7 +410,16 @@ router.patch(
 
     const line = await db.transaction(async (tx) => {
       await assertLineOwnership(tx, quoteId, versionId, lineId);
-      return updateLineTx(tx, lineId, payload);
+      const updated = await updateLineTx(tx, lineId, payload);
+
+      await logActivityTx(tx, {
+        quoteId,
+        versionId,
+        type: 'line_changed',
+        metadata: { operation: 'update', lineId },
+      });
+
+      return updated;
     });
 
     res.json({ data: line });
@@ -273,6 +434,13 @@ router.delete(
     await db.transaction(async (tx) => {
       await assertLineOwnership(tx, quoteId, versionId, lineId);
       await softDeleteLineTx(tx, lineId);
+
+      await logActivityTx(tx, {
+        quoteId,
+        versionId,
+        type: 'line_changed',
+        metadata: { operation: 'delete', lineId },
+      });
     });
 
     res.status(204).send();

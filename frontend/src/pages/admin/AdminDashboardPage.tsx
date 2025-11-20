@@ -2,6 +2,7 @@ import { NavLink } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/card'
 import { Button } from '../../components/ui/button'
+import { usePageTitle } from '../../lib/usePageTitle'
 
 const shortcuts = [
   {
@@ -22,6 +23,8 @@ const shortcuts = [
 ]
 
 export function AdminDashboardPage() {
+  usePageTitle('MEMOPYK Devis — Tableau de bord')
+
   return (
     <section className="space-y-8">
       <header className="space-y-3">

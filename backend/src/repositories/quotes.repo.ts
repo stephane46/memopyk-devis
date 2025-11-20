@@ -18,6 +18,7 @@ import {
   quoteLines,
   quoteVersions,
   quotes,
+  type BrandingConfig,
   type Quote,
   type QuoteLine,
   type QuoteVersion,
@@ -25,8 +26,10 @@ import {
 import { reserveQuoteNumber } from '../services/numbering.service';
 import { computeLineTotals } from '../services/totals.service';
 import { HttpError } from '../utils/http-error';
+import { getBrandingConfigTx } from './branding.repo';
 import type { LineCreateDTO } from '../api/validators/lines';
-import { recomputeVersionTotalsTx } from './versions.repo';
+import { lockNonCurrentVersionsForQuoteTx, recomputeVersionTotalsTx } from './versions.repo';
+import { logActivityTx } from './activities.repo';
 
 const UNIQUE_VIOLATION = '23505';
 
@@ -147,12 +150,40 @@ async function insertLines(
   }
 }
 
+export function computeQuoteBrandingDefaults(
+  now: Date,
+  dto: QuoteCreateDTO,
+  branding: BrandingConfig | null,
+): { validUntil: string | null; depositPct: string } {
+  let validUntil: string | null = null;
+
+  if (dto.valid_until !== undefined) {
+    validUntil = dto.valid_until ?? null;
+  } else if (branding?.defaultValidityDays != null) {
+    const base = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    base.setUTCDate(base.getUTCDate() + branding.defaultValidityDays);
+    validUntil = base.toISOString().slice(0, 10);
+  }
+
+  let depositPct = '0';
+
+  if (dto.deposit_pct !== undefined) {
+    depositPct = dto.deposit_pct.toString();
+  } else if (branding?.defaultDepositPct != null) {
+    depositPct = branding.defaultDepositPct.toString();
+  }
+
+  return { validUntil, depositPct };
+}
+
 export async function createQuote(dto: QuoteCreateDTO): Promise<{ id: string; number: string }> {
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
       return await db.transaction(async (tx) => {
         const quoteNumber = await reserveQuoteNumber(tx);
         const now = new Date();
+        const branding = await getBrandingConfigTx(tx);
+        const { validUntil, depositPct } = computeQuoteBrandingDefaults(now, dto, branding);
 
         const [quote] = await tx
           .insert(quotes)
@@ -163,6 +194,8 @@ export async function createQuote(dto: QuoteCreateDTO): Promise<{ id: string; nu
             summary: dto.notes ?? null,
             currencyCode: dto.currency,
             status: 'draft',
+            validUntil,
+            depositPct,
             createdAt: now,
             updatedAt: now,
           })
@@ -182,7 +215,8 @@ export async function createQuote(dto: QuoteCreateDTO): Promise<{ id: string; nu
             intro: dto.notes ?? null,
             notes: dto.notes ?? null,
             currencyCode: dto.currency,
-            depositPct: '0',
+            validityDate: validUntil,
+            depositPct,
             totalsNetCents: 0,
             totalsTaxCents: 0,
             totalsGrossCents: 0,
@@ -207,6 +241,13 @@ export async function createQuote(dto: QuoteCreateDTO): Promise<{ id: string; nu
           await recomputeVersionTotalsTx(tx, version.id);
         }
 
+        await logActivityTx(tx, {
+          quoteId: quote.id,
+          versionId: version.id,
+          type: 'created',
+          metadata: { number: quote.number },
+        });
+
         return { id: quote.id, number: quoteNumber };
       });
     } catch (error) {
@@ -222,11 +263,21 @@ export async function createQuote(dto: QuoteCreateDTO): Promise<{ id: string; nu
 }
 
 export async function getById(id: string): Promise<QuoteFull | null> {
-  return fetchAggregate(and(eq(quotes.id, id), isNull(quotes.deletedAt)));
+  const where = and(eq(quotes.id, id), isNull(quotes.deletedAt));
+  if (!where) {
+    return null;
+  }
+
+  return fetchAggregate(where);
 }
 
 export async function getByNumber(number: string): Promise<QuoteFull | null> {
-  return fetchAggregate(and(eq(quotes.number, number), isNull(quotes.deletedAt)));
+  const where = and(eq(quotes.number, number), isNull(quotes.deletedAt));
+  if (!where) {
+    return null;
+  }
+
+  return fetchAggregate(where);
 }
 
 export async function list(filters?: QuoteListFilters): Promise<QuoteListItem[]> {
@@ -265,40 +316,105 @@ export async function updateMeta(id: string, patch: QuoteUpdateDTO): Promise<voi
     return;
   }
 
-  const now = new Date();
-  const updatePayload: Partial<typeof quotes.$inferInsert> = {
-    updatedAt: now,
-  };
+  await db.transaction(async (tx) => {
+    const [existing] = await tx
+      .select()
+      .from(quotes)
+      .where(and(eq(quotes.id, id), isNull(quotes.deletedAt)))
+      .limit(1);
 
-  if (patch.title !== undefined) {
-    updatePayload.title = patch.title;
-  }
+    if (!existing) {
+      throw new HttpError(404, 'quote_not_found', 'Quote not found.');
+    }
 
-  if (patch.customer_name !== undefined) {
-    updatePayload.customerName = patch.customer_name;
-  }
+    const now = new Date();
+    const updatePayload: Partial<typeof quotes.$inferInsert> = {
+      updatedAt: now,
+    };
 
-  if (patch.notes !== undefined) {
-    updatePayload.summary = patch.notes;
-  }
+    if (patch.title !== undefined) {
+      updatePayload.title = patch.title;
+    }
 
-  if (patch.currency !== undefined) {
-    updatePayload.currencyCode = patch.currency;
-  }
+    if (patch.customer_name !== undefined) {
+      updatePayload.customerName = patch.customer_name;
+    }
 
-  if (patch.status !== undefined) {
-    updatePayload.status = patch.status as Quote['status'];
-  }
+    if (patch.notes !== undefined) {
+      updatePayload.summary = patch.notes;
+    }
 
-  const [updated] = await db
-    .update(quotes)
-    .set(updatePayload)
-    .where(and(eq(quotes.id, id), isNull(quotes.deletedAt)))
-    .returning({ id: quotes.id });
+    if (patch.currency !== undefined) {
+      updatePayload.currencyCode = patch.currency;
+    }
 
-  if (!updated) {
-    throw new HttpError(404, 'quote_not_found', 'Quote not found.');
-  }
+    if (patch.status !== undefined) {
+      updatePayload.status = patch.status as Quote['status'];
+    }
+
+    if (patch.valid_until !== undefined) {
+      updatePayload.validUntil = patch.valid_until === null ? null : patch.valid_until;
+    }
+
+    const [updated] = await tx
+      .update(quotes)
+      .set(updatePayload)
+      .where(and(eq(quotes.id, id), isNull(quotes.deletedAt)))
+      .returning({ id: quotes.id });
+
+    if (!updated) {
+      throw new HttpError(404, 'quote_not_found', 'Quote not found.');
+    }
+
+    if (patch.status === 'accepted' && existing.status !== 'accepted') {
+      await lockNonCurrentVersionsForQuoteTx(tx, id);
+    }
+
+    const currentVersionId = existing.currentVersionId ?? null;
+
+    const activities: Array<{
+      type: 'updated' | 'status_changed' | 'send' | 'accept' | 'decline';
+      metadata?: Record<string, unknown>;
+    }> = [];
+
+    activities.push({
+      type: 'updated',
+      metadata: { patch },
+    });
+
+    if (patch.status && patch.status !== existing.status) {
+      activities.push({
+        type: 'status_changed',
+        metadata: { from: existing.status, to: patch.status },
+      });
+
+      if (patch.status === 'sent') {
+        activities.push({
+          type: 'send',
+          metadata: { from: existing.status, to: patch.status },
+        });
+      } else if (patch.status === 'accepted') {
+        activities.push({
+          type: 'accept',
+          metadata: { from: existing.status, to: patch.status },
+        });
+      } else if (patch.status === 'declined') {
+        activities.push({
+          type: 'decline',
+          metadata: { from: existing.status, to: patch.status },
+        });
+      }
+    }
+
+    for (const activity of activities) {
+      await logActivityTx(tx, {
+        quoteId: id,
+        versionId: currentVersionId,
+        type: activity.type,
+        metadata: activity.metadata ?? null,
+      });
+    }
+  });
 }
 
 export async function softDelete(id: string): Promise<void> {

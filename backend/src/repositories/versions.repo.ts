@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull, max } from 'drizzle-orm';
+import { and, desc, eq, isNull, max, ne, sql } from 'drizzle-orm';
 
 import type { LineCreateDTO } from '../api/validators/lines';
 import type { TransactionClient } from '../db/client';
@@ -15,6 +15,7 @@ import {
   type LineInput,
 } from '../services/totals.service';
 import { HttpError } from '../utils/http-error';
+import { logActivityTx } from './activities.repo';
 
 function toLineInput(line: QuoteLine): LineInput {
   return {
@@ -67,6 +68,49 @@ export async function duplicateVersionTx(
 
   if (!version) {
     throw new HttpError(404, 'version_not_found', 'Version not found.');
+  }
+
+  const [quoteRow] = await tx
+    .select()
+    .from(quotes)
+    .where(and(eq(quotes.id, version.quoteId), isNull(quotes.deletedAt)))
+    .limit(1);
+
+  if (!quoteRow) {
+    throw new HttpError(404, 'quote_not_found', 'Quote not found.');
+  }
+
+  if (quoteRow.status === 'accepted') {
+    await logActivityTx(tx, {
+      quoteId: quoteRow.id,
+      versionId: version.id,
+      type: 'version_locked',
+      metadata: { reason: 'quote_accepted_no_new_versions' },
+    });
+
+    throw new HttpError(
+      409,
+      'version_creation_forbidden',
+      'Cannot create a new version for an accepted quote.',
+    );
+  }
+
+  const [countRow] = await tx
+    .select({ value: sql<number>`count(*)` })
+    .from(quoteVersions)
+    .where(and(eq(quoteVersions.quoteId, version.quoteId), isNull(quoteVersions.deletedAt)));
+
+  const versionCount = Number(countRow?.value ?? 0);
+
+  if (versionCount >= 5) {
+    await logActivityTx(tx, {
+      quoteId: quoteRow.id,
+      versionId: version.id,
+      type: 'version_limit_reached',
+      metadata: { max_versions: 5 },
+    });
+
+    throw new HttpError(409, 'version_limit_reached', 'Maximum number of versions reached.');
   }
 
   const [nextNumberRow] = await tx
@@ -133,12 +177,96 @@ export async function duplicateVersionTx(
   return created;
 }
 
+export async function lockNonCurrentVersionsForQuoteTx(
+  tx: TransactionClient,
+  quoteId: string,
+): Promise<void> {
+  const [quoteRow] = await tx
+    .select({ id: quotes.id, currentVersionId: quotes.currentVersionId })
+    .from(quotes)
+    .where(and(eq(quotes.id, quoteId), isNull(quotes.deletedAt)))
+    .limit(1);
+
+  if (!quoteRow) {
+    throw new HttpError(404, 'quote_not_found', 'Quote not found.');
+  }
+
+  const predicates = [
+    eq(quoteVersions.quoteId, quoteId),
+    isNull(quoteVersions.deletedAt),
+  ] as const;
+
+  const whereClause = quoteRow.currentVersionId
+    ? and(...predicates, ne(quoteVersions.id, quoteRow.currentVersionId))
+    : and(...predicates);
+
+  const now = new Date();
+
+  const locked = await tx
+    .update(quoteVersions)
+    .set({ isLocked: true, updatedAt: now })
+    .where(whereClause)
+    .returning({ id: quoteVersions.id });
+
+  for (const version of locked) {
+    await logActivityTx(tx, {
+      quoteId,
+      versionId: version.id,
+      type: 'version_locked',
+      metadata: { reason: 'quote_accepted' },
+    });
+  }
+}
+
 export async function createVersionWithLinesTx(
   tx: TransactionClient,
   quoteId: string,
   payload: { version: Partial<QuoteVersion>; lines: LineCreateDTO[] },
 ): Promise<QuoteVersion> {
   const now = new Date();
+
+  const [quoteRow] = await tx
+    .select()
+    .from(quotes)
+    .where(and(eq(quotes.id, quoteId), isNull(quotes.deletedAt)))
+    .limit(1);
+
+  if (!quoteRow) {
+    throw new HttpError(404, 'quote_not_found', 'Quote not found.');
+  }
+
+  if (quoteRow.status === 'accepted') {
+    await logActivityTx(tx, {
+      quoteId,
+      versionId: null,
+      type: 'version_locked',
+      metadata: { reason: 'quote_accepted_no_new_versions' },
+    });
+
+    throw new HttpError(
+      409,
+      'version_creation_forbidden',
+      'Cannot create a new version for an accepted quote.',
+    );
+  }
+
+  const [countRow] = await tx
+    .select({ value: sql<number>`count(*)` })
+    .from(quoteVersions)
+    .where(and(eq(quoteVersions.quoteId, quoteId), isNull(quoteVersions.deletedAt)));
+
+  const versionCount = Number(countRow?.value ?? 0);
+
+  if (versionCount >= 5) {
+    await logActivityTx(tx, {
+      quoteId,
+      versionId: null,
+      type: 'version_limit_reached',
+      metadata: { max_versions: 5 },
+    });
+
+    throw new HttpError(409, 'version_limit_reached', 'Maximum number of versions reached.');
+  }
 
   const [nextNumberRow] = await tx
     .select({ value: max(quoteVersions.versionNumber).as('max') })

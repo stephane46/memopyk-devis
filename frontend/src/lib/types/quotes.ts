@@ -26,6 +26,9 @@ export interface QuoteAggregate {
   status: QuoteListItem['status'];
   created_at: string;
   validity_date?: string | null;
+  acceptanceMode: 'online' | 'paper' | null;
+  acceptedAt: string | null;
+  acceptedByName?: string | null;
   currency_code: string;
   current_version?: {
     id: string;
@@ -37,6 +40,8 @@ export interface QuoteAggregate {
     totals_gross_cents: number;
     totals_deposit_cents: number;
     totals_balance_cents: number;
+    pdf_url?: string | null;
+    pdf_generated_at?: string | null;
     lines: Array<{
       id: string;
       position: number;
@@ -47,6 +52,8 @@ export interface QuoteAggregate {
       totals_gross_cents: number;
     }>;
   } | null;
+  // Optional list of versions when the API exposes them, used for public version selector
+  versions?: QuoteVersionSummary[] | null;
 }
 
 export interface QuoteVersionSummary {
@@ -66,6 +73,7 @@ export type QuotePdfJobStatus = {
   jobId: string;
   status: 'pending' | 'ready' | 'failed';
   url?: string | null;
+  generatedAt?: string | null;
 };
 
 export interface QuoteListResponse {
@@ -77,9 +85,9 @@ export interface QuoteAggregateResponse {
 }
 
 // Basic payload for online acceptance via the public quote view.
-// Shape is aligned with the backend spec (name + CGV checkbox) and can be
+// Shape is aligned with the backend spec (full_name + CGV checkbox) and can be
 // extended later if the acceptance summary requires more fields.
 export interface OnlineAcceptancePayload {
-  name: string;
+  full_name: string;
   accept_cgv: boolean;
 }

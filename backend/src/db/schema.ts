@@ -45,6 +45,19 @@ export const activityTypeEnum = pgEnum('quote_activity_type', [
   'version_published',
   'attachment_added',
   'attachment_removed',
+  'freeze',
+  'send',
+  'view',
+  'accept',
+  'decline',
+  'sync_conflict',
+  'offline_write',
+  'version_locked',
+  'version_limit_reached',
+  'public_link_updated',
+  'pin_failed',
+  'pin_locked',
+  'pin_verified',
 ]);
 
 export const attachmentKindEnum = pgEnum('attachment_kind', [
@@ -60,6 +73,9 @@ export const quotes = pgTable(
     number: varchar('number', { length: 32 }).notNull(),
     clientId: uuid('client_id'),
     status: quoteStatusEnum('status').notNull().default('draft'),
+    acceptanceMode: text('acceptance_mode'),
+    acceptedAt: timestamp('accepted_at', { withTimezone: true }),
+    acceptedByName: text('accepted_by_name'),
     title: text('title'),
     customerName: text('customer_name'),
     summary: text('summary'),
@@ -189,10 +205,108 @@ export const attachments = pgTable(
   })
 );
 
+export const quotePublicLinks = pgTable(
+  'quote_public_links',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    quoteId: uuid('quote_id').notNull(),
+    token: text('token').notNull(),
+    pinHash: text('pin_hash'),
+    pinFailedAttempts: integer('pin_failed_attempts').notNull().default(0),
+    pinLockedUntil: timestamp('pin_locked_until', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    quoteIdx: index('quote_public_links_quote_id_idx').on(table.quoteId),
+    tokenUniqueIdx: uniqueIndex('quote_public_links_token_unique').on(table.token),
+  })
+);
+
+export const taxRates = pgTable(
+  'tax_rates',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    name: text('name').notNull(),
+    code: text('code').notNull(),
+    rateBps: integer('rate_bps').notNull(),
+    isDefault: boolean('is_default').notNull().default(false),
+    isActive: boolean('is_active').notNull().default(true),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    codeUniqueIdx: uniqueIndex('tax_rates_code_unique').on(table.code),
+    defaultActiveIdx: index('tax_rates_default_active_idx').on(table.isDefault, table.isActive),
+  }),
+);
+
+export const products = pgTable(
+  'products',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    internalCode: text('internal_code'),
+    name: text('name').notNull(),
+    description: text('description'),
+    defaultUnitPriceCents: integer('default_unit_price_cents'),
+    defaultTaxRateId: uuid('default_tax_rate_id'),
+    isActive: boolean('is_active').notNull().default(true),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    internalCodeUniqueIdx: uniqueIndex('products_internal_code_unique').on(table.internalCode),
+    activeIdx: index('products_active_idx').on(table.isActive),
+  }),
+);
+
+export const brandingConfigs = pgTable(
+  'branding_configs',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    label: text('label').notNull(),
+    companyName: text('company_name'),
+    logoUrl: text('logo_url'),
+    primaryColor: text('primary_color'),
+    secondaryColor: text('secondary_color'),
+    pdfFooterText: text('pdf_footer_text'),
+    defaultValidityDays: integer('default_validity_days'),
+    defaultDepositPct: integer('default_deposit_pct'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    labelUniqueIdx: uniqueIndex('branding_configs_label_unique').on(table.label),
+  }),
+);
+
+export const pdfJobs = pgTable(
+  'pdf_jobs',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    quoteId: uuid('quote_id').notNull(),
+    versionId: uuid('version_id').notNull(),
+    status: text('status').notNull(),
+    fileUrl: text('file_url'),
+    errorCode: text('error_code'),
+    errorMessage: text('error_message'),
+    attempts: integer('attempts').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+    startedAt: timestamp('started_at', { withTimezone: true }),
+    finishedAt: timestamp('finished_at', { withTimezone: true }),
+  },
+  (table) => ({
+    quoteVersionIdx: index('pdf_jobs_quote_version_idx').on(table.quoteId, table.versionId),
+    statusIdx: index('pdf_jobs_status_idx').on(table.status),
+  }),
+);
+
 export const quotesRelations = relations(quotes, ({ many, one }) => ({
   versions: many(quoteVersions),
   activities: many(activities),
   attachments: many(attachments),
+   publicLinks: many(quotePublicLinks),
   currentVersion: one(quoteVersions, {
     fields: [quotes.currentVersionId],
     references: [quoteVersions.id],
@@ -230,6 +344,24 @@ export const attachmentsRelations = relations(attachments, ({ one }) => ({
   }),
 }));
 
+export const quotePublicLinksRelations = relations(quotePublicLinks, ({ one }) => ({
+  quote: one(quotes, {
+    fields: [quotePublicLinks.quoteId],
+    references: [quotes.id],
+  }),
+}));
+
+export const pdfJobsRelations = relations(pdfJobs, ({ one }) => ({
+  quote: one(quotes, {
+    fields: [pdfJobs.quoteId],
+    references: [quotes.id],
+  }),
+  version: one(quoteVersions, {
+    fields: [pdfJobs.versionId],
+    references: [quoteVersions.id],
+  }),
+}));
+
 export type Quote = typeof quotes.$inferSelect;
 export type QuoteInsert = typeof quotes.$inferInsert;
 export type QuoteVersion = typeof quoteVersions.$inferSelect;
@@ -238,3 +370,9 @@ export type QuoteLine = typeof quoteLines.$inferSelect;
 export type QuoteLineInsert = typeof quoteLines.$inferInsert;
 export type Activity = typeof activities.$inferSelect;
 export type Attachment = typeof attachments.$inferSelect;
+export type QuotePublicLink = typeof quotePublicLinks.$inferSelect;
+export type TaxRate = typeof taxRates.$inferSelect;
+export type Product = typeof products.$inferSelect;
+export type BrandingConfig = typeof brandingConfigs.$inferSelect;
+export type PdfJob = typeof pdfJobs.$inferSelect;
+export type PdfJobStatus = 'pending' | 'processing' | 'ready' | 'failed';

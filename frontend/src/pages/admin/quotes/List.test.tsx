@@ -68,4 +68,18 @@ describe('Admin Quotes List page', () => {
     expect(screen.getByText(/Impossible de charger les devis/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Réessayer/i })).toBeInTheDocument();
   });
+
+  it('sets the page title for the quotes list', () => {
+    mockedUseQuotesList.mockReturnValue({
+      data: { data: [] },
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+
+    renderWithRouter();
+
+    expect(document.title).toBe('MEMOPYK Devis — Liste des devis');
+  });
 });

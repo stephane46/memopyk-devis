@@ -14,6 +14,28 @@ export const quoteCreateSchema = z
     notes: z.string().trim().optional(),
     currency: currencySchema,
     lines: z.array(lineCreateSchema).min(1),
+    valid_until: z
+      .union([
+        z
+          .string()
+          .trim()
+          .refine((value) => {
+            if (value.length === 0) {
+              return false;
+            }
+
+            const parsed = new Date(value);
+            return !Number.isNaN(parsed.getTime());
+          }, { message: 'La date de validité doit être une date ISO valide.' }),
+        z.null(),
+      ])
+      .optional(),
+    deposit_pct: z
+      .number()
+      .int()
+      .min(0)
+      .max(100)
+      .optional(),
   })
   .strict();
 
@@ -24,6 +46,22 @@ export const quoteUpdateSchema = z
     notes: z.string().trim().optional(),
     currency: currencySchema.optional(),
     status: statusSchema.optional(),
+    valid_until: z
+      .union([
+        z
+          .string()
+          .trim()
+          .refine((value) => {
+            if (value.length === 0) {
+              return false;
+            }
+
+            const parsed = new Date(value);
+            return !Number.isNaN(parsed.getTime());
+          }, { message: 'La date de validité doit être une date ISO valide.' }),
+        z.null(),
+      ])
+      .optional(),
   })
   .strict();
 

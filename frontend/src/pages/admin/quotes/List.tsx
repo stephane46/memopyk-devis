@@ -1,6 +1,7 @@
 import { Link, useSearchParams } from 'react-router-dom'
 import { useQuotesList } from '../../../lib/hooks/useQuotes'
 import { formatISO, formatMoney } from '../../../lib/format'
+import { usePageTitle } from '../../../lib/usePageTitle'
 
 const PAGE_SIZE = 20
 
@@ -20,6 +21,8 @@ export default function QuotesListPage() {
   const quotes = data?.data ?? []
   const hasFilters = Boolean(q || status)
   const hasQuotes = quotes.length > 0
+
+  usePageTitle('MEMOPYK Devis — Liste des devis')
 
   function updateParam(key: string, value: string) {
     const next = new URLSearchParams(searchParams)
@@ -125,7 +128,7 @@ export default function QuotesListPage() {
                   Aucun devis pour le moment
                 </h1>
                 <p className="mb-6 max-w-xl text-center text-memopyk-blue-gray">
-                  Crée ton premier devis MEMOPYK pour un client. Tu pourras ensuite le dupliquer, gérer
+                  Créez votre premier devis MEMOPYK pour un client. Vous pourrez ensuite le dupliquer, gérer
                   plusieurs versions et l’envoyer directement par lien sécurisé.
                 </p>
                 <div className="mt-4 flex justify-center">
@@ -166,7 +169,19 @@ export default function QuotesListPage() {
                       <td className="px-4 py-3 text-memopyk-dark-blue">
                         {quote.customer_name ?? '—'}
                       </td>
-                      <td className="px-4 py-3 capitalize text-memopyk-blue-gray">{quote.status}</td>
+                      <td className="px-4 py-3 text-memopyk-blue-gray">
+                        {quote.status === 'draft'
+                          ? 'Brouillon'
+                          : quote.status === 'sent'
+                          ? 'Envoyé'
+                          : quote.status === 'accepted'
+                          ? 'Accepté'
+                          : quote.status === 'rejected'
+                          ? 'Refusé'
+                          : quote.status === 'archived'
+                          ? 'Archivé'
+                          : quote.status}
+                      </td>
                       <td className="px-4 py-3 text-memopyk-blue-gray">{formatISO(quote.created_at)}</td>
                       <td className="px-4 py-3 text-right font-medium text-memopyk-dark-blue">
                         {formatMoney(quote.totals_gross_cents, quote.currency_code)}

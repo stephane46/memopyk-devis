@@ -2,7 +2,7 @@ import { and, asc, eq, isNull, sql } from 'drizzle-orm';
 
 import type { LineCreateDTO, LineUpdateDTO } from '../api/validators/lines';
 import type { TransactionClient } from '../db/client';
-import { quoteLines, type QuoteLine } from '../db/schema';
+import { quoteLines, quoteVersions, type QuoteLine } from '../db/schema';
 import { computeLineTotals } from '../services/totals.service';
 import { HttpError } from '../utils/http-error';
 import { recomputeVersionTotalsTx } from './versions.repo';
@@ -31,11 +31,32 @@ export async function listLinesTx(
     .orderBy(asc(quoteLines.position));
 }
 
+async function assertVersionEditableTx(
+  tx: TransactionClient,
+  versionId: string,
+): Promise<void> {
+  const [version] = await tx
+    .select({ id: quoteVersions.id, status: quoteVersions.status, isLocked: quoteVersions.isLocked })
+    .from(quoteVersions)
+    .where(and(eq(quoteVersions.id, versionId), isNull(quoteVersions.deletedAt)))
+    .limit(1);
+
+  if (!version) {
+    throw new HttpError(404, 'version_not_found', 'Version not found.');
+  }
+
+  if (version.status === 'archived' || version.isLocked) {
+    throw new HttpError(409, 'version_locked', 'This version is locked and cannot be modified.');
+  }
+}
+
 export async function createLineTx(
   tx: TransactionClient,
   versionId: string,
   dto: LineCreateDTO,
 ): Promise<QuoteLine> {
+  await assertVersionEditableTx(tx, versionId);
+
   const now = new Date();
   const lines = await listLinesTx(tx, versionId);
   const position = dto.position && dto.position > 0 ? dto.position : lines.length + 1;
@@ -96,6 +117,8 @@ export async function updateLineTx(
   if (!existing) {
     throw new HttpError(404, 'line_not_found', 'Line not found.');
   }
+
+  await assertVersionEditableTx(tx, existing.versionId);
 
   const patch: Partial<typeof quoteLines.$inferInsert> = { updatedAt: new Date() };
 
@@ -172,6 +195,8 @@ export async function softDeleteLineTx(
   if (!deleted) {
     throw new HttpError(404, 'line_not_found', 'Line not found.');
   }
+
+  await assertVersionEditableTx(tx, deleted.versionId);
 
   await tx
     .update(quoteLines)

@@ -1,10 +1,19 @@
 import { Link, useParams } from 'react-router-dom'
 import { useQuote } from '../../../lib/hooks/useQuotes'
 import { formatISO, formatMoney } from '../../../lib/format'
+import { usePageTitle } from '../../../lib/usePageTitle'
 
 export default function QuoteDetailPage() {
   const { quoteId = '' } = useParams()
   const { data, isLoading, isError, error, refetch } = useQuote(quoteId)
+
+  const quote = data?.data
+
+  const pageTitle = quote?.number
+    ? `MEMOPYK Devis — Admin — ${quote.number}`
+    : 'MEMOPYK Devis — Admin — Détail du devis'
+
+  usePageTitle(pageTitle)
 
   if (isLoading) {
     return (
@@ -60,7 +69,6 @@ export default function QuoteDetailPage() {
     )
   }
 
-  const quote = data?.data
   if (!quote) {
     return (
       <div className="p-6 text-sm text-memopyk-blue-gray">
@@ -74,14 +82,66 @@ export default function QuoteDetailPage() {
     )
   }
 
+  let statusLabel: string
+  switch (quote.status) {
+    case 'draft':
+      statusLabel = 'Brouillon'
+      break
+    case 'sent':
+      statusLabel = 'Envoyé'
+      break
+    case 'accepted':
+      statusLabel = 'Accepté'
+      break
+    case 'rejected':
+      statusLabel = 'Refusé'
+      break
+    case 'archived':
+      statusLabel = 'Archivé'
+      break
+    default:
+      statusLabel = quote.status
+  }
+
+  const acceptanceMode = quote.acceptanceMode ?? null
+  const acceptedAt = quote.acceptedAt ?? null
+
+  let acceptanceBadgeLabel: string | null = null
+  if (quote.status !== 'accepted' && !acceptanceMode) {
+    acceptanceBadgeLabel = 'En attente'
+  } else if (quote.status === 'accepted' && acceptanceMode === 'online') {
+    acceptanceBadgeLabel = 'Accepté en ligne'
+  } else if (quote.status === 'accepted' && acceptanceMode === 'paper') {
+    acceptanceBadgeLabel = 'Accepté (papier)'
+  }
+
+  const acceptanceModeLabel =
+    acceptanceMode === 'online'
+      ? 'En ligne'
+      : acceptanceMode === 'paper'
+        ? 'Sur papier'
+        : '—'
+
+  const acceptedAtLabel = acceptedAt ? formatISO(acceptedAt) : '—'
+
   const version = quote.current_version ?? null
+
+  const lastPdfGeneratedAt = version?.pdf_generated_at ?? null
+  const lastPdfGeneratedLabel = lastPdfGeneratedAt ? formatISO(lastPdfGeneratedAt) : '—'
 
   return (
     <div className="space-y-8">
       <header className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-semibold text-memopyk-dark-blue">{quote.number}</h1>
-          <p className="text-sm text-memopyk-blue-gray">Statut : {quote.status}</p>
+          <div className="mt-1 flex flex-wrap items-center gap-2">
+            <p className="text-sm text-memopyk-blue-gray">Statut : {statusLabel}</p>
+            {acceptanceBadgeLabel && (
+              <span className="inline-flex items-center rounded-full bg-memopyk-cream px-2.5 py-0.5 text-xs font-medium text-memopyk-dark-blue">
+                {acceptanceBadgeLabel}
+              </span>
+            )}
+          </div>
         </div>
         <Link className="text-sm font-medium text-memopyk-dark-blue underline" to="/admin/quotes">
           Retour à la liste
@@ -93,6 +153,9 @@ export default function QuoteDetailPage() {
         <Info label="Créé le" value={formatISO(quote.created_at)} />
         <Info label="Valide jusqu’au" value={formatISO(quote.validity_date ?? null)} />
         <Info label="Devise" value={quote.currency_code} />
+        <Info label="Dernière génération PDF" value={lastPdfGeneratedLabel} />
+        <Info label="Mode d’acceptation" value={acceptanceModeLabel} />
+        <Info label="Accepté le" value={acceptedAtLabel} />
       </section>
 
       <section className="space-y-4">

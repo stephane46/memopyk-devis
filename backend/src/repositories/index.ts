@@ -1,1 +1,11 @@
-﻿export * from "./quotes.repo"; export * from "./versions.repo"; export * from "./lines.repo";
+﻿export * from './quotes.repo';
+export * from './versions.repo';
+export * from './lines.repo';
+export * from './activities.repo';
+export * from './public-links.repo';
+export * from './public-access.repo';
+export * from './acceptance.repo';
+export * from './tax-rates.repo';
+export * from './products.repo';
+export * from './branding.repo';
+export * from './pdf-jobs.repo';
